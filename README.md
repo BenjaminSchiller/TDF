@@ -10,7 +10,7 @@ In between, a task can have various states.
 The transitions between these states are executed by the three components: *server*, *worker*, and *manager*.
 In the following, we describe the **main** and **intermediate** states of a task as well as all **transitions** between these states.
 
-![States of a task over time](img/states.pdf)
+![States of a task over time](img/states.png)
 
 ### Main states of a task
 
