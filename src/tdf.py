@@ -131,6 +131,65 @@ class Task:
     def isTimedOutTooOften(self):
         return (int(self.get("timeouts")) > int(self.get("max_timeouts")))
 
+    def getProgramName(self):
+        return self.get("program").split(";",1)[0].strip()
+
+    def getProgramSource(self):
+        return self.get("program").split(";",1)[1].strip()
+
+    def isProgramAvailable(self):
+        return os.path.isdir('./%s/' % self.getProgramName()) and os.path.isfile('./%s/run.sh' % self.getProgramName())
+
+    def fetchProgram(self):
+        src = self.getProgramSource()
+        if not os.path.isdir('./%s/' % self.getProgramName()):
+            os.makedirs('./%s/' % self.getProgramName())
+        if not (src.endswith(".zip") or src.endswith(".tar") or src.endswith(".tar.gz") or src.endswith(".tar.bz") or src.endswith("/run.sh") or src.endswith(":run.sh")):
+            print "invalid type of archive / program: %s" % src
+            return False
+        if src.startswith("http://") or src.startswith("https://"):
+            path = src
+            archive = src.split("/")[-1]
+            print "downloading %s from %s" % (archive, path)
+            if not os.system("wget %s -P ./%s/" % (path, self.getProgramName())) == 0:
+                return False
+            if not archive.endswith("run.sh"):
+                return self.unpack(self.getProgramName(), archive)
+            else:
+                return True
+        elif src.startswith("rsync:"):
+            path = src.replace("rsync:","",1)
+            archive = path.split("/")[-1]
+            print "rsyncing %s from %s" % (archive, path)
+            if not os.system("rsync -auvzl %s ./%s/" % (path, self.getProgramName())) == 0:
+                return False
+            if not archive.endswith("run.sh"):
+                return self.unpack(self.getProgramName(), archive)
+            else:
+                return True
+
+    def unpack(self, programName, archive):
+        src = "./%s/%s" % (programName, archive)
+        dst = "./%s/" % (programName,)
+        if archive.endswith(".zip"):
+            print "unzipping %s to %s" % (src, dst)
+            return os.system("unzip %s -d %s" % (src, dst)) == 0
+        elif archive.endswith(".tar"):
+            print "untaring %s to %s" % (src, dst)
+            return os.system("tar -xvf %s -C %s" % (src, dst)) == 0
+        elif archive.endswith(".tar.gz"):
+            print "untaring %s to %s" % (src, dst)
+            return os.system("tar -zxvf %s -C %s" % (src, dst)) == 0
+        elif archive.endswith(".tar.bz"):
+            print "untaring %s to %s" % (src, dst)
+            return os.system("tar -jxvf %s -C %s" % (src, dst)) == 0
+        elif archive.endswith(".tar.bz2"):
+            print "untaring %s to %s" % (src, dst)
+            return os.system("tar -jxvf %s -C %s" % (src, dst)) == 0
+        else:
+            print "invalid archive for unpacking: %s" % src
+            return False
+
     def move(self, tdf, dst_state, score, r, propertiesToUpdate={}):
         remove = r.zrem(self.getKey(self.get("state")), self.get("id"))
 
@@ -326,8 +385,24 @@ class TdfWorker(Tdf):
             return False
         else:
             log(self, "executing task %s: %s %s" % (self.task.get("id"), self.task.get("program"), self.task.get("input")), self.task)
-            cmd = "%s %s" % (self.task.get("program"), self.task.get("input"))
-            out, err, timedOut = self.execute(cmd, self.task.get("timeout"))
+
+            if not self.task.isProgramAvailable():
+                log(self, "attempting to fetch program '%s' from '%s'" % (self.task.getProgramName(), self.task.getProgramSource()))
+                if self.task.fetchProgram():
+                    log(self, "fetched program '%s'" % self.task.getProgramName())
+                else:
+                    log(self, "could not fetch program '%s'" % self.task.getProgramName())
+                    out = ""
+                    err = "could not fetch program '%s' at worker '%s'" % (self.task.getProgramName(), self.name)
+                    timedOut = False
+
+            if self.task.isProgramAvailable():
+                cmd = "cd ./%s/; ./run.sh %s" % (self.task.getProgramName(), self.task.get("input"))
+                out, err, timedOut = self.execute(cmd, self.task.get("timeout"))
+            else:
+                out = ""
+                err = "program './%s/run.sh' does not exist!" % self.task.getProgramName()
+                timedOut = False
 
             propertiesToUpdate = {self.task.currentKey("output"): out, self.task.currentKey("error"): err}
 
@@ -374,8 +449,8 @@ class TdfWorker(Tdf):
                 os.makedirs(dirs)
 
     def execute(self, cmd, timeout):
-        output_filename = self.cfg.get("worker", "task_output_filename").replace("$worker", self.name).replace("$taskId", self.task.get("id")).replace("$round", self.task.get("round"))
-        error_filename = self.cfg.get("worker", "task_error_filename").replace("$worker", self.name).replace("$taskId", self.task.get("id")).replace("$round", self.task.get("round"))
+        output_filename = self.cfg.get("worker", "task_output_filename").replace("$worker", self.name).replace("$taskId", self.task.get("id")).replace("$round", self.task.get("round")).replace("$program", self.task.getProgramName())
+        error_filename = self.cfg.get("worker", "task_error_filename").replace("$worker", self.name).replace("$taskId", self.task.get("id")).replace("$round", self.task.get("round")).replace("$program", self.task.getProgramName())
         self.makeDirs(output_filename)
         self.makeDirs(error_filename)
         with open(output_filename, "w") as out:

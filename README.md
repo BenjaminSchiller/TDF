@@ -199,39 +199,42 @@ In the definition, both parts are separated by `;` and leading / trailing spaces
 
 	<name of the program> ; <how to get the program>
 
-In both cases, the definition is expected to point to an archive of one of the following formats:
+The `<name of the program>` defines the local path where the program is stored / expected, e.g., `my-program/`.
+
+Currently, two ways of getting a program are supported: downloading it via http / https or fetching it via rsync.
+In both cases, the definition is expected to point to a `run.sh` script or an archive of one of the following formats:
 
 - .tar
 - .tar.gz
 - .tar.bz
+- .tar.bz2
 - .zip
 
-The `<name of the program>` defines the local path where the program is stored / expected, e.g., `my-program/`.
 Such an archive can contain any number and type of files / directories.
-It must contain a script `run.sh` at the top level (keep in mind to make it executable).
-If the directory `my-program/` does not exist, a worker attempts to download the archive, creates the directory, and unpacks the archive in this directory.
-Then, it attempty to execute the following command:
+It must contain a script `run.sh` at the top level (!!!keep in mind to make it executable!!!).
+If the directory `<name of the program>` does not exist, a worker creates the directory, attempts to download the archive, and unpacks the archive in this directory.
+Then, it attempts to execute the following command:
 
 	cd <name of the program>/; ./run.sh $input
 
 Here, `$input` is the input defined for this task.
-If any of these steps fail, a corresponding error message is stored for the task and the execution is terminated.
+If any of these steps fail, a corresponding error message is output and stored for the task.
+Then, the execution is terminated.
 
-Currently, two ways of describing how to get a program are supported: **web** and **rsync**.
 
+### http / https
 
-### Download: web
-
-Getting a program via web requires the provision of a url (either starting with `http://` or `https://`).
+Getting a program via wget requires the provision of a url (either starting with `http://` or `https://`).
 
 	examples:
 		program ; http://bla.fasel/program-v1.zip          ->  program/
 		newer ; https://bla.fasel/program-v2.tar           ->  newer/
 		crawer-1.1.23 ; http://bla.fasel/crawler-1.tar.gz  ->  crawler-1.1.23/
 		crawer-1.2.1 ; http://bla.fasel/crawler--2.tar.gz  ->  crawler-1.2.1/
+		blafasel ; http://bla.fasel/run.sh                 ->  crawler-1.2.1/
 
 
-### Download: rsync
+### rsync
 
 Getting a program via rsync requires the provision of a valid path (either local or remote).
 
@@ -240,6 +243,7 @@ Getting a program via rsync requires the provision of a valid path (either local
 		newer ; rsync:bla.fasel:program-v2.tar             ->  newer/
 		crawer-1.1.23 ; rsync:/local/crawler-1.tar.gz      ->  crawler-1.1.23/
 		crawer-1.2.1 ; rsync:also-local/crawler--2.tar.gz  ->  crawler-1.2.1/
+		blafasel ; rsync:also-local/fasel/bla/run.sh       ->  crawler-1.2.1/
 
 
 ### Usage of `run.sh`
@@ -342,11 +346,14 @@ This provides a randomization of the execution order of tasks opened with the ex
 
 
 
-## Installation
+## Requirements
 
 To use TDF, a **redis server** must be installed and be reachable from the machine where the server and workers are running.
+
 TDF requires **Python version 2.7**.
 The packages **redis** and **subprocess32** must be installed.
+
+The following programs must be available as well: **rsync** and **wget**.
 
 
 ## Example
