@@ -131,40 +131,34 @@ class Task:
     def isTimedOutTooOften(self):
         return (int(self.get("timeouts")) > int(self.get("max_timeouts")))
 
-    def getProgramName(self):
-        return self.get("program").split(";",1)[0].strip()
-
-    def getProgramSource(self):
-        return self.get("program").split(";",1)[1].strip()
-
     def isProgramAvailable(self):
-        return os.path.isdir('./%s/' % self.getProgramName()) and os.path.isfile('./%s/run.sh' % self.getProgramName())
+        return os.path.isdir('./%s/' % self.get("program")) and os.path.isfile('./%s/run.sh' % self.get("program"))
 
     def fetchProgram(self):
-        src = self.getProgramSource()
-        if not os.path.isdir('./%s/' % self.getProgramName()):
-            os.makedirs('./%s/' % self.getProgramName())
-        if not (src.endswith(".zip") or src.endswith(".tar") or src.endswith(".tar.gz") or src.endswith(".tar.bz") or src.endswith("/run.sh") or src.endswith(":run.sh")):
+        src = self.get("source")
+        if not os.path.isdir('./%s/' % self.get("program")):
+            os.makedirs('./%s/' % self.get("program"))
+        if not (src.endswith(".zip") or src.endswith(".tar") or src.endswith(".tar.gz") or src.endswith(".tar.bz") or src.endswith(".tar.bz2") or src.endswith("/run.sh") or src.endswith(":run.sh")):
             print "invalid type of archive / program: %s" % src
             return False
         if src.startswith("http://") or src.startswith("https://"):
             path = src
             archive = src.split("/")[-1]
             print "downloading %s from %s" % (archive, path)
-            if not os.system("wget %s -P ./%s/" % (path, self.getProgramName())) == 0:
+            if not os.system("wget %s -P ./%s/" % (path, self.get("program"))) == 0:
                 return False
             if not archive.endswith("run.sh"):
-                return self.unpack(self.getProgramName(), archive)
+                return self.unpack(self.get("program"), archive)
             else:
                 return True
         elif src.startswith("rsync:"):
             path = src.replace("rsync:","",1)
             archive = path.split("/")[-1]
             print "rsyncing %s from %s" % (archive, path)
-            if not os.system("rsync -auvzl %s ./%s/" % (path, self.getProgramName())) == 0:
+            if not os.system("rsync -auvzl %s ./%s/" % (path, self.get("program"))) == 0:
                 return False
             if not archive.endswith("run.sh"):
-                return self.unpack(self.getProgramName(), archive)
+                return self.unpack(self.get("program"), archive)
             else:
                 return True
 
@@ -265,15 +259,19 @@ class Tdf(object):
     def getTask(self, task_id):
         return Task(self.r.hgetall(self.getKey("task:%s" % task_id)))
 
-    def processTasks(self, state, process1, process2=None):
-        size = self.r.zcard(state)
+    def processTasks(self, state, data, process1, process2=None):
+        size = self.getElementCount(state)
         if size > 0:
             log(self, "processing %s %s tasks" % (size, state))
-        for id in self.r.zscan(self.getKey(state))[1]:
-            task = self.getTask(id[0])
-            process1(task)
-            if not process2 is None:
-                process2(task)
+            for id in self.r.zscan(self.getKey(state))[1]:
+                task = self.getTask(id[0])
+                process1(self, data, task)
+                if not process2 is None:
+                    process2(self, data, task)
+        return size
+
+    def getElementCount(self, state):
+        return self.r.zcard(self.getKey(state))
 
  
 
@@ -292,20 +290,20 @@ class TdfServer(Tdf):
 
 
     def processOpenTasks(self):
-        self.processTasks("open", self.processOpen)
+        return self.processTasks("open", {}, self.processOpen)
 
     def processRunningTasks(self):
-        self.processTasks("running", self.processRunning)
+        return self.processTasks("running", {}, self.processRunning)
 
     def processExecutedTasks(self):
-        self.processTasks("executed", self.processExecuted)
+        return self.processTasks("executed", {}, self.processExecuted)
 
 
-    def processOpen(self, task):
+    def processOpen(self, manager, data, task):
         if task.isExpired():
             task.move(self, "expired", getCurrentTimestamp(), self.r)
 
-    def processRunning(self, task):
+    def processRunning(self, manager, data, task):
         if task.isExpired():
             task.move(self, "expired", getCurrentTimestamp(), self.r)
         elif task.isTimedOut():
@@ -320,7 +318,7 @@ class TdfServer(Tdf):
                 task.move(self, "timeout", getCurrentTimestamp(), self.r, propertiesToUpdate)
                 task.move(self, "open", getCurrentTimestamp(), self.r)
 
-    def processExecuted(self, task):
+    def processExecuted(self, manager, data, task):
         if task.isExpired():
             task.move(self, "expired", getCurrentTimestamp(), self.r)
         elif task.isFailed():
@@ -335,13 +333,14 @@ class TdfServer(Tdf):
         else:
             task.move(self, "succeeded", getCurrentTimestamp(), self.r)
 
-    def run(self):
-        while True:
+    def run(self, rounds=float("Inf")):
+        roundCounter = 0
+        while roundCounter < rounds:
             start = time.time()
 
-            self.processOpenTasks()
-            self.processRunningTasks()
-            self.processExecutedTasks()
+            processedTasks = self.processOpenTasks()
+            processedTasks += self.processRunningTasks()
+            processedTasks += self.processExecutedTasks()
             
             end = time.time()
             duration = end - start
@@ -349,6 +348,8 @@ class TdfServer(Tdf):
             sleep = roundDuration - duration
             if sleep > 0:
                 time.sleep(sleep)
+            log(self, "%s: processed %s tasks" % (roundCounter, processedTasks))
+            roundCounter += 1
 
 
 
@@ -387,21 +388,21 @@ class TdfWorker(Tdf):
             log(self, "executing task %s: %s %s" % (self.task.get("id"), self.task.get("program"), self.task.get("input")), self.task)
 
             if not self.task.isProgramAvailable():
-                log(self, "attempting to fetch program '%s' from '%s'" % (self.task.getProgramName(), self.task.getProgramSource()))
+                log(self, "attempting to fetch program '%s' from '%s'" % (self.task.get("program"), self.task.get("source")))
                 if self.task.fetchProgram():
-                    log(self, "fetched program '%s'" % self.task.getProgramName())
+                    log(self, "fetched program '%s'" % self.task.get("program"))
                 else:
-                    log(self, "could not fetch program '%s'" % self.task.getProgramName())
+                    log(self, "could not fetch program '%s'" % self.task.get("program"))
                     out = ""
-                    err = "could not fetch program '%s' at worker '%s'" % (self.task.getProgramName(), self.name)
+                    err = "could not fetch program '%s' at worker '%s'" % (self.task.get("program"), self.name)
                     timedOut = False
 
             if self.task.isProgramAvailable():
-                cmd = "cd ./%s/; ./run.sh %s" % (self.task.getProgramName(), self.task.get("input"))
+                cmd = "cd ./%s/; ./run.sh %s" % (self.task.get("program"), self.task.get("input"))
                 out, err, timedOut = self.execute(cmd, self.task.get("timeout"))
             else:
                 out = ""
-                err = "program './%s/run.sh' does not exist!" % self.task.getProgramName()
+                err = "program './%s/run.sh' does not exist!" % self.task.get("program")
                 timedOut = False
 
             propertiesToUpdate = {self.task.currentKey("output"): out, self.task.currentKey("error"): err}
@@ -449,8 +450,8 @@ class TdfWorker(Tdf):
                 os.makedirs(dirs)
 
     def execute(self, cmd, timeout):
-        output_filename = self.cfg.get("worker", "task_output_filename").replace("$worker", self.name).replace("$taskId", self.task.get("id")).replace("$round", self.task.get("round")).replace("$program", self.task.getProgramName())
-        error_filename = self.cfg.get("worker", "task_error_filename").replace("$worker", self.name).replace("$taskId", self.task.get("id")).replace("$round", self.task.get("round")).replace("$program", self.task.getProgramName())
+        output_filename = self.cfg.get("worker", "task_output_filename").replace("$worker", self.name).replace("$taskId", self.task.get("id")).replace("$round", self.task.get("round")).replace("$program", self.task.get("program"))
+        error_filename = self.cfg.get("worker", "task_error_filename").replace("$worker", self.name).replace("$taskId", self.task.get("id")).replace("$round", self.task.get("round")).replace("$program", self.task.get("program"))
         self.makeDirs(output_filename)
         self.makeDirs(error_filename)
         with open(output_filename, "w") as out:
@@ -464,8 +465,9 @@ class TdfWorker(Tdf):
         error = self.readLog(error_filename)
         return output, error, timedOut
 
-    def run(self):
-        while True:
+    def run(self, rounds=float("Inf")):
+        roundCounter = 0
+        while roundCounter < rounds:
             if self.claimOpenTask():
                 if self.executeTask():
                     time.sleep(float(self.cfg.get("worker", "sleep_after_success")))
@@ -473,6 +475,7 @@ class TdfWorker(Tdf):
                     time.sleep(float(self.cfg.get("worker", "sleep_after_failure")))
             else:
                 time.sleep(float(self.cfg.get("worker", "sleep_after_no_process_claimed")))
+            roundCounter += 1
 
 
 
@@ -485,6 +488,12 @@ import random
 def doNothing(task):
     pass
 
+def stopProcessing(manager, data, roundCounter):
+    return False
+
+def endRound(manager, data, roundCounter):
+    return False
+
 class TdfManager(Tdf):
     def __init__(self, *args, **kwargs):
         super(TdfManager, self).__init__(*args, **kwargs)
@@ -495,6 +504,7 @@ class TdfManager(Tdf):
 
     def openTask( self,
                   program,
+                  source,
                   input,
                   start_after=None, 
                   end_before=None, 
@@ -520,61 +530,68 @@ class TdfManager(Tdf):
             start_after = float(start_after) + random.random()
 
         task = Task({ "program": program,
-                       "input": input,
-                       "id": -1,
-                       "start_after": start_after,
-                       "end_before": end_before,
-                       "timeout": timeout,
-                       "max_fails": max_fails,
-                       "max_timeouts": max_timeouts,
-                       "state": None,
-                       "round": 0,
-                       "fails": 0,
-                       "timeouts": 0,
-                       "log": "", 
-                       "namespace": self.namespace} )
+                      "source": source,
+                      "input": input,
+                      "id": -1,
+                      "start_after": start_after,
+                      "end_before": end_before,
+                      "timeout": timeout,
+                      "max_fails": max_fails,
+                      "max_timeouts": max_timeouts,
+                      "state": None,
+                      "round": 0,
+                      "fails": 0,
+                      "timeouts": 0,
+                      "log": "", 
+                      "namespace": self.namespace} )
         task.open(self.r)
+        log(self, "opened task %s: %s %s" % (task.get("id"), task.get("program"), task.get("input")))
         return task
 
-    def processSucceededTasks(self, success):
-        self.processTasks("succeeded", success, self.processSucceeded)
+    def processSucceededTasks(self, data, success):
+        return self.processTasks("succeeded", data, success, self.processSucceeded)
 
-    def processFailedTasks(self, failure):
-        self.processTasks("failed", failure, self.processFailed)
+    def processFailedTasks(self, data, failure):
+        return self.processTasks("failed", data, failure, self.processFailed)
 
-    def processTimedOutTasks(self, timedOut):
-        self.processTasks("timed_out", timedOut, self.processTimedOut)
+    def processTimedOutTasks(self, data, timedOut):
+        return self.processTasks("timed_out", data, timedOut, self.processTimedOut)
 
-    def processExpiredTasks(self, expired):
-        self.processTasks("expired", expired, self.processExpired)
+    def processExpiredTasks(self, data, expired):
+        return self.processTasks("expired", data, expired, self.processExpired)
 
 
-    def processSucceeded(self, task):
+    def processSucceeded(self, manager, data, task):
         task.move(self, "archived", getCurrentTimestamp(), self.r)
 
-    def processFailed(self, task):
+    def processFailed(self, manager, data, task):
         task.move(self, "archived", getCurrentTimestamp(), self.r)
 
-    def processTimedOut(self, task):
+    def processTimedOut(self, manager, data, task):
         task.move(self, "archived", getCurrentTimestamp(), self.r)
 
-    def processExpired(self, task):
+    def processExpired(self, manager, data, task):
         task.move(self, "archived", getCurrentTimestamp(), self.r)
 
 
-    def run(self, succeeded=doNothing, failed=doNothing, timedOut=doNothing, expired=doNothing):
+    def run(self, data={}, succeeded=doNothing, failed=doNothing, timedOut=doNothing, expired=doNothing, stopProcessing=stopProcessing, endRound=endRound):
+        roundCounter = 0
         while True:
             start = time.time()
 
-            self.processSucceededTasks(succeeded)
-            self.processFailedTasks(failed)
-            self.processTimedOutTasks(timedOut)
-            self.processExpiredTasks(expired)
+            self.processSucceededTasks(data, succeeded)
+            self.processFailedTasks(data, failed)
+            self.processTimedOutTasks(data, timedOut)
+            self.processExpiredTasks(data, expired)
             
             end = time.time()
             duration = end - start
             roundDuration = float(self.cfg.get("manager", "round_duration"))
             sleep = roundDuration - duration
+            endRound(self, data, roundCounter)
+            roundCounter += 1
+            if stopProcessing(self, data, roundCounter):
+                break
             if sleep > 0:
                 time.sleep(sleep)
 
@@ -582,7 +599,7 @@ class TdfManager(Tdf):
     def printStats(self, skipEmpty=True):
         print printPrefix + "~ ~ ~ ~ ~ ~ ~ ~ ~ ~"
         for state in states:
-            size = self.r.zcard(self.getKey(state))
+            size = self.getElementCount(state)
             if not skipEmpty or size > 0:
                 print printPrefix + "~ %s:%s%s" % (state, " "*(logNameOffset-len(state)), size)
         print printPrefix + "~ ~ ~ ~ ~ ~ ~ ~ ~ ~"
@@ -591,7 +608,7 @@ class TdfManager(Tdf):
         print printPrefix + "~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~"
         for state in states:
             if verbose:
-                print printPrefix + "~ %s:%s%s" % (state, " "*(10-len(state)), self.r.zcard(self.getKey(state)))
+                print printPrefix + "~ %s:%s%s" % (state, " "*(10-len(state)), self.getElementCount(state))
                 for t in self.r.zscan(self.getKey(state))[1]:
                     print printPrefix + "             %s" % taskToStr(self.getTask(t[0]), True)
             else:

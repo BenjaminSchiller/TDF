@@ -101,9 +101,10 @@ During execution, statistics are maintained and (intermediate) results are store
 
 ### Task definition
 
-At the highest level, a task is described as a pair `(program, input)` where `program` identified the program to execute and `input` specifies the input used for the execution of this task.
+At the highest level, a task is described as a triple `(program, source, input)` where `program` is the name of the program to execute, source describes how it can be obtained, and `input` specifies the input used for the execution of this task.
 
 - `program` (string)
+- `source`(string)
 - `input` (string)
 
 ### Identification
@@ -194,14 +195,10 @@ It must be implemented for each project using the provided APIs of the manager.
 
 ## Program definition
 
-The definition of a program consists of two parts: its name and how to get it.
-In the definition, both parts are separated by `;` and leading / trailing spaces are removed:
+The definition of a program consists of two parts: its name (`program`) and how to obtain it (`source`).
+The name defines the local path where the program is stored / expected, e.g., `my-program/`.
 
-	<name of the program> ; <how to get the program>
-
-The `<name of the program>` defines the local path where the program is stored / expected, e.g., `my-program/`.
-
-Currently, two ways of getting a program are supported: downloading it via http / https or fetching it via rsync.
+Currently, two ways of obtaining a program are supported: downloading it via http / https or fetching it via rsync.
 In both cases, the definition is expected to point to a `run.sh` script or an archive of one of the following formats:
 
 - .tar
@@ -215,7 +212,7 @@ It must contain a script `run.sh` at the top level (!!!keep in mind to make it e
 If the directory `<name of the program>` does not exist, a worker creates the directory, attempts to download the archive, and unpacks the archive in this directory.
 Then, it attempts to execute the following command:
 
-	cd <name of the program>/; ./run.sh $input
+	cd $program/; ./run.sh $input
 
 Here, `$input` is the input defined for this task.
 If any of these steps fail, a corresponding error message is output and stored for the task.
@@ -227,11 +224,11 @@ Then, the execution is terminated.
 Getting a program via wget requires the provision of a url (either starting with `http://` or `https://`).
 
 	examples:
-		program ; http://bla.fasel/program-v1.zip          ->  program/
-		newer ; https://bla.fasel/program-v2.tar           ->  newer/
-		crawer-1.1.23 ; http://bla.fasel/crawler-1.tar.gz  ->  crawler-1.1.23/
-		crawer-1.2.1 ; http://bla.fasel/crawler--2.tar.gz  ->  crawler-1.2.1/
-		blafasel ; http://bla.fasel/run.sh                 ->  crawler-1.2.1/
+		program ; http://bla.fasel/program-v1.zip           ->  program/
+		newer ; https://bla.fasel/program-v2.tar            ->  newer/
+		crawler-1.1.23 ; http://bla.fasel/crawler-1.tar.gz  ->  crawler-1.1.23/
+		crawler-1.2.1 ; http://bla.fasel/crawler--2.tar.gz  ->  crawler-1.2.1/
+		blafasel ; http://bla.fasel/run.sh                  ->  blafasel/
 
 
 ### rsync
@@ -239,11 +236,11 @@ Getting a program via wget requires the provision of a url (either starting with
 Getting a program via rsync requires the provision of a valid path (either local or remote).
 
 	examples:
-		program ; rsync:bla.fasel:program-v1.zip           ->  program/
-		newer ; rsync:bla.fasel:program-v2.tar             ->  newer/
-		crawer-1.1.23 ; rsync:/local/crawler-1.tar.gz      ->  crawler-1.1.23/
-		crawer-1.2.1 ; rsync:also-local/crawler--2.tar.gz  ->  crawler-1.2.1/
-		blafasel ; rsync:also-local/fasel/bla/run.sh       ->  crawler-1.2.1/
+		program ; rsync:bla.fasel:program-v1.zip            ->  program/
+		newer ; rsync:bla.fasel:program-v2.tar              ->  newer/
+		crawler-1.1.23 ; rsync:/local/crawler-1.tar.gz      ->  crawler-1.1.23/
+		crawler-1.2.1 ; rsync:also-local/crawler--2.tar.gz  ->  crawler-1.2.1/
+		blafasel ; rsync:also-local/fasel/bla/run.sh        ->  blafasel/
 
 
 ### Usage of `run.sh`
