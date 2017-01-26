@@ -1,13 +1,14 @@
 import sys
 
-sys.argv.append(10)
-sys.argv.append(500)
-sys.argv.append(10)
+# sys.argv.append(10)
+# sys.argv.append(500)
+# sys.argv.append(10)
 
 if len(sys.argv) == 4:
-    m = sys.argv[1]
-    n = sys.argv[2]
-    p = sys.argv[3]
+    m = int(sys.argv[1])
+    n = int(sys.argv[2])
+    p = int(sys.argv[3])
+    print "computing sum of [%s,%s] with bucket size p=%s" % (m,n,p)
 else:
     sys.stderr.write("expecting 3 arguments (%s given)\n" % (len(sys.argv)-1))
     sys.stderr.write("    1: m (first number to sum)\n")
@@ -30,8 +31,7 @@ def expired(manager, data, task):
     print "EXPIRED: %s" % task
 
 def endRound(manager, data, roundCounter):
-    print "ending round %s (%s)" % (roundCounter, str(data["currentList"]))
-    print getTotalElementCount(manager)
+    print "ending round %s (%s) (%s tasks left)" % (roundCounter, str(data["currentList"]), getTotalElementCount(manager))
     if len(data["currentList"]) > 1:
         createTasks(manager, data["currentList"])
         data["currentList"] = []
