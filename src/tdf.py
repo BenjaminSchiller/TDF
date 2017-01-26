@@ -139,12 +139,12 @@ class Task:
         if not os.path.isdir('./%s/' % self.get("program")):
             os.makedirs('./%s/' % self.get("program"))
         if not (src.endswith(".zip") or src.endswith(".tar") or src.endswith(".tar.gz") or src.endswith(".tar.bz") or src.endswith(".tar.bz2") or src.endswith("/run.sh") or src.endswith(":run.sh")):
-            print "invalid type of archive / program: %s" % src
+            log(self, "invalid type of archive / program: %s" % src, self.task)
             return False
         if src.startswith("http://") or src.startswith("https://"):
             path = src
             archive = src.split("/")[-1]
-            print "downloading %s from %s" % (archive, path)
+            log(self, "downloading %s from %s" % (archive, path), self.task)
             if not os.system("wget %s -P ./%s/" % (path, self.get("program"))) == 0:
                 return False
             if not archive.endswith("run.sh"):
@@ -154,7 +154,7 @@ class Task:
         elif src.startswith("rsync:"):
             path = src.replace("rsync:","",1)
             archive = path.split("/")[-1]
-            print "rsyncing %s from %s" % (archive, path)
+            log(self, "rsyncing %s from %s" % (archive, path), self.task)
             if not os.system("rsync -auvzl %s ./%s/" % (path, self.get("program"))) == 0:
                 return False
             if not archive.endswith("run.sh"):
@@ -166,22 +166,22 @@ class Task:
         src = "./%s/%s" % (programName, archive)
         dst = "./%s/" % (programName,)
         if archive.endswith(".zip"):
-            print "unzipping %s to %s" % (src, dst)
+            log(self, "unzipping %s to %s" % (src, dst), self.task)
             return os.system("unzip %s -d %s" % (src, dst)) == 0
         elif archive.endswith(".tar"):
-            print "untaring %s to %s" % (src, dst)
+            log(self, "untaring %s to %s" % (src, dst), self.task)
             return os.system("tar -xvf %s -C %s" % (src, dst)) == 0
         elif archive.endswith(".tar.gz"):
-            print "untaring %s to %s" % (src, dst)
+            log(self, "untaring %s to %s" % (src, dst), self.task)
             return os.system("tar -zxvf %s -C %s" % (src, dst)) == 0
         elif archive.endswith(".tar.bz"):
-            print "untaring %s to %s" % (src, dst)
+            log(self, "untaring %s to %s" % (src, dst), self.task)
             return os.system("tar -jxvf %s -C %s" % (src, dst)) == 0
         elif archive.endswith(".tar.bz2"):
-            print "untaring %s to %s" % (src, dst)
+            log(self, "untaring %s to %s" % (src, dst), self.task)
             return os.system("tar -jxvf %s -C %s" % (src, dst)) == 0
         else:
-            print "invalid archive for unpacking: %s" % src
+            log(self, "invalid archive for unpacking: %s" % src, self.task)
             return False
 
     def move(self, tdf, dst_state, score, r, propertiesToUpdate={}):
