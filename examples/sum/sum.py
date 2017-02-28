@@ -18,59 +18,60 @@ else:
 
 
 def succeeded(manager, data, task):
-    # print "SUCCEEDED: %s" % task
-    # print "           %s" % task.getLast("output")
-    res = task.getLast("output").replace("\n", "")
+    res = task.get_last("output").replace("\n", "")
     data["currentList"].append(res)
+
 def failed(manager, data, task):
     print "FAILED: %s" % task
     print " error: %s" % task.getLast("error").replace("\n", "\n           ")
-def timedOut(manager, data, task):
+
+def timed_out(manager, data, task):
     print "TIMED_OUT: %s" % task
+
 def expired(manager, data, task):
     print "EXPIRED: %s" % task
 
-def endRound(manager, data, roundCounter):
-    print "ending round %s (%s) (%s tasks left)" % (roundCounter, str(data["currentList"]), getTotalElementCount(manager))
-    if len(data["currentList"]) > 1:
-        createTasks(manager, data["currentList"])
-        data["currentList"] = []
-    elif getTotalElementCount(manager) == 0:
-        print "FINAL RESULT: %s" % data["currentList"][0]
-        data["currentList"] = []
-
-def getTotalElementCount(manager):
+def get_total_element_count(manager):
     states = ["open", "running", "executed", "timed_out", "expired", "succeeded", "failed"]
     count = 0
     for state in states:
-        count += manager.getElementCount(state)
+        count += manager.get_element_count(state)
     return count
 
-def stopProcessing(manager, data, roundCounter):
+def end_round(manager, data, roundCounter):
+    print "ending round %s (%s) (%s tasks left)" % (roundCounter, str(data["currentList"]), get_total_element_count(manager))
+    if len(data["currentList"]) > 1:
+        create_tasks(manager, data["currentList"])
+        data["currentList"] = []
+    elif get_total_element_count(manager) == 0:
+        print "FINAL RESULT: %s" % data["currentList"][0]
+        data["currentList"] = []
+
+def stop_processing(manager, data, roundCounter):
     states = ["open", "running", "executed", "timed_out", "expired", "succeeded", "failed"]
     for state in states:
-        if manager.getElementCount(state) != 0:
+        if manager.get_element_count(state) != 0:
             return False
     return True
 
 
-def createTask(manager, shortList):
+def create_task(manager, shortList):
     print "creating task for numbers: %s" % str(shortList)
     program = "sum"
     source = "rsync:run.sh"
     input = " ".join(shortList)
     manager.openTask("sum", "rsync:run.sh", input, add_random_start_offset=True)
 
-def createTasks(manager, longList):
+def create_tasks(manager, longList):
     # print "creating tasks for numbers: %s" % str(longList)
     shortList = []
     for i in longList:
         shortList.append(str(i))
         if len(shortList) is p:
-            createTask(manager, shortList)
+            create_task(manager, shortList)
             shortList = []
     if len(shortList) > 0:
-        createTask(manager, shortList)
+        create_task(manager, shortList)
 
 import sys
 sys.path.insert(0, '../../src/')
@@ -78,10 +79,10 @@ import tdf
 with tdf.TdfManager("SumManager", "cfg/manager.cfg") as manager:
     manager.flushall()
 
-    createTasks(manager, range(m,n+1))
+    create_tasks(manager, range(m,n+1))
 
     data = {"currentList" : []}
-    manager.run(data=data, succeeded=succeeded, failed=failed, timedOut=timedOut, expired=expired, stopProcessing=stopProcessing, endRound=endRound)
+    manager.run(data=data, succeeded=succeeded, failed=failed, timed_out=timed_out, expired=expired, stop_processing=stop_processing, end_round=end_round)
 
     res = (n-m+1) * (n+m) / 2
     print "result should be: %s = (%s+%s) / 2 * (%s-%s+1)" % (res,n,m,n,m)
